@@ -1,0 +1,2 @@
+Bạn có thể đặt ảnh hoặc video vào thư mục này.
+Sau đó mở run_gui.bat hoặc chạy app.py.
