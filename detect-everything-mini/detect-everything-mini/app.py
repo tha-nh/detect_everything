@@ -60,13 +60,18 @@ def collect_sources(paths: list[Path]) -> list[Path]:
     return sources
 
 
-def build_output_path(source: Path, output_arg: str | None, multiple: bool) -> Path:
+def build_output_path(
+    source: Path,
+    output_arg: str | None,
+    multiple: bool,
+    default_output_dir: Path,
+) -> Path:
     extension = source.suffix.lower()
     output_extension = ".jpg" if extension in IMAGE_EXTENSIONS else ".mp4"
     default_name = f"{source.stem}_detected{output_extension}"
 
     if not output_arg:
-        return Path("output") / default_name
+        return default_output_dir / default_name
 
     output = Path(output_arg)
     if multiple or output.is_dir() or not output.suffix:
@@ -126,8 +131,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    source_paths = [Path(value) for value in args.source]
+    default_output_dir = Path("output")
+    if len(source_paths) == 1 and source_paths[0].is_dir() and not args.output:
+        default_output_dir = default_output_dir / source_paths[0].name
+
     try:
-        sources = collect_sources([Path(value) for value in args.source])
+        sources = collect_sources(source_paths)
     except (FileNotFoundError, ValueError) as exc:
         parser.error(str(exc))
 
@@ -145,7 +155,7 @@ def main() -> None:
 
     for index, source in enumerate(sources, start=1):
         extension = source.suffix.lower()
-        output = build_output_path(source, args.output, multiple)
+        output = build_output_path(source, args.output, multiple, default_output_dir)
 
         print(f"\n[{index}/{len(sources)}] Đang xử lý: {source}")
         if extension in IMAGE_EXTENSIONS:
