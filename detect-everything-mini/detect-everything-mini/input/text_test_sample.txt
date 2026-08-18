@@ -1,0 +1,7 @@
+Invoice ID: INV-2026-0803
+Customer: Nguyen Van A
+Product: laptop
+Total: 1500 USD
+
+This text file is for testing keyword detection.
+Try classes/keywords: invoice, customer, laptop, total

@@ -1,0 +1,5 @@
+Khach hang Nguyen Van A mua laptop Dell, tong tien 1500 USD, ma hoa don INV-2026-0803.
+
+Hop dong dich vu giua ben A va ben B co dieu khoan thanh toan, thoi han va trach nhiem bao mat.
+
+Ung vien co 3 nam kinh nghiem Python, tung lam backend developer va co ky nang SQL, Docker, API.

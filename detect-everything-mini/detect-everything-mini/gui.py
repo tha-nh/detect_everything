@@ -6,12 +6,14 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from detector import EverythingDetector
+from audio_detector import analyze_video_audio
+from text_detector import TEXT_EXTENSIONS, TextFileDetector
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".wmv"}
-SUPPORTED_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
+MEDIA_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
+SUPPORTED_EXTENSIONS = MEDIA_EXTENSIONS | TEXT_EXTENSIONS
 
 
 class DetectEverythingApp:
@@ -32,7 +34,7 @@ class DetectEverythingApp:
         )
         self.confidence_var = tk.DoubleVar(value=0.15)
         self.image_size_var = tk.IntVar(value=1280)
-        self.status_var = tk.StringVar(value="Chọn một ảnh hoặc video để bắt đầu.")
+        self.status_var = tk.StringVar(value="Chọn ảnh, video hoặc tài liệu để bắt đầu.")
         self.file_count_var = tk.StringVar(value="0")
         self.detected_count_var = tk.StringVar(value="0")
 
@@ -129,7 +131,7 @@ class DetectEverythingApp:
 
         ttk.Label(
             header,
-            text="Nhận diện ảnh và video bằng YOLO-World, lưu kết quả vào thư mục output.",
+            text="Nhận diện ảnh/video bằng YOLO-World và gán nhãn đoạn text trong tài liệu.",
             style="Subtitle.TLabel",
             wraplength=720,
         ).grid(row=2, column=1, sticky="w", pady=(4, 0))
@@ -141,7 +143,7 @@ class DetectEverythingApp:
         ttk.Label(input_card, text="Nguồn dữ liệu", style="Section.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
             input_card,
-            text="Chọn một hoặc nhiều ảnh/video, hoặc quét cả thư mục.",
+            text="Chọn một hoặc nhiều ảnh/video/tài liệu, hoặc quét cả thư mục.",
             style="Body.TLabel",
             wraplength=270,
         ).grid(row=1, column=0, sticky="w", pady=(4, 10))
@@ -160,7 +162,7 @@ class DetectEverythingApp:
         ttk.Label(input_card, text="Đối tượng cần tìm", style="Section.TLabel").grid(row=4, column=0, sticky="w")
         ttk.Label(
             input_card,
-            text="Nhập class bằng tiếng Anh, cách nhau bằng dấu phẩy.",
+            text="Nhập class hoặc nhãn text, cách nhau bằng dấu phẩy.",
             style="Body.TLabel",
             wraplength=270,
         ).grid(row=5, column=0, sticky="w", pady=(4, 10))
@@ -168,7 +170,7 @@ class DetectEverythingApp:
         ttk.Entry(input_card, textvariable=self.classes_var).grid(row=6, column=0, sticky="ew")
         ttk.Label(
             input_card,
-            text="Ví dụ: person, laptop, mobile phone, red cup",
+            text="Ví dụ: person, laptop, invoice=hóa đơn tổng tiền",
             style="Body.TLabel",
         ).grid(row=7, column=0, sticky="w", pady=(7, 18))
 
@@ -299,9 +301,11 @@ class DetectEverythingApp:
 
     def choose_file(self) -> None:
         filename = filedialog.askopenfilename(
-            title="Chọn ảnh hoặc video",
+            title="Chọn ảnh, video hoặc tài liệu",
             filetypes=[
+                ("File được hỗ trợ", "*.jpg *.jpeg *.png *.bmp *.webp *.mp4 *.avi *.mov *.mkv *.wmv *.txt *.docx *.pdf"),
                 ("Ảnh và video", "*.jpg *.jpeg *.png *.bmp *.webp *.mp4 *.avi *.mov *.mkv *.wmv"),
+                ("Tài liệu", "*.txt *.docx *.pdf"),
                 ("Tất cả file", "*.*"),
             ],
         )
@@ -315,9 +319,11 @@ class DetectEverythingApp:
 
     def choose_files(self) -> None:
         filenames = filedialog.askopenfilenames(
-            title="Chọn ảnh hoặc video",
+            title="Chọn ảnh, video hoặc tài liệu",
             filetypes=[
+                ("File được hỗ trợ", "*.jpg *.jpeg *.png *.bmp *.webp *.mp4 *.avi *.mov *.mkv *.wmv *.txt *.docx *.pdf"),
                 ("Ảnh và video", "*.jpg *.jpeg *.png *.bmp *.webp *.mp4 *.avi *.mov *.mkv *.wmv"),
+                ("Tài liệu", "*.txt *.docx *.pdf"),
                 ("Tất cả file", "*.*"),
             ],
         )
@@ -330,7 +336,7 @@ class DetectEverythingApp:
             self.status_var.set(f"Sẵn sàng xử lý {len(self.sources)} file.")
 
     def choose_folder(self) -> None:
-        folder = filedialog.askdirectory(title="Chọn thư mục chứa ảnh hoặc video")
+        folder = filedialog.askdirectory(title="Chọn thư mục chứa ảnh, video hoặc tài liệu")
         if folder:
             folder_path = Path(folder)
             self.sources = self._collect_sources([folder_path])
@@ -356,7 +362,7 @@ class DetectEverythingApp:
             output_dir = self.output_dir
 
         if not sources:
-            messagebox.showerror("Thiếu file", "Hãy chọn ảnh hoặc video hợp lệ.")
+            messagebox.showerror("Thiếu file", "Hãy chọn ảnh, video hoặc tài liệu hợp lệ.")
             return
         if not classes:
             messagebox.showerror(
@@ -388,7 +394,7 @@ class DetectEverythingApp:
             self.results_table.delete(row_id)
         self.progress["value"] = 0
         self.status_var.set(
-            "Đang tải model và xử lý. Lần chạy đầu cần Internet để tải model..."
+                "Đang xử lý. File ảnh/video có thể cần tải model trong lần chạy đầu..."
         )
 
         threading.Thread(
@@ -404,12 +410,8 @@ class DetectEverythingApp:
         output_dir: Path,
     ) -> None:
         try:
-            detector = EverythingDetector(
-                model_name="yolov8s-worldv2.pt",
-                confidence=float(self.confidence_var.get()),
-                image_size=int(self.image_size_var.get()),
-            )
-            detector.set_classes(classes)
+            detector = None
+            text_detector = TextFileDetector(classes)
 
             output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -422,10 +424,29 @@ class DetectEverythingApp:
                 self._set_status(f"Đang xử lý {index + 1}/{total_sources}: {source.name}")
 
                 if source.suffix.lower() in IMAGE_EXTENSIONS:
+                    if detector is None:
+                        from detector import EverythingDetector
+
+                        detector = EverythingDetector(
+                            model_name="yolov8s-worldv2.pt",
+                            confidence=float(self.confidence_var.get()),
+                            image_size=int(self.image_size_var.get()),
+                        )
+                        detector.set_classes(classes)
                     output = self._next_output_path(output_dir / f"{source.stem}_detected.jpg")
                     counts = detector.detect_image(str(source), str(output))
+                    result_output = output
                     self._set_progress((index + 1) * 100 / total_sources)
-                else:
+                elif source.suffix.lower() in VIDEO_EXTENSIONS:
+                    if detector is None:
+                        from detector import EverythingDetector
+
+                        detector = EverythingDetector(
+                            model_name="yolov8s-worldv2.pt",
+                            confidence=float(self.confidence_var.get()),
+                            image_size=int(self.image_size_var.get()),
+                        )
+                        detector.set_classes(classes)
                     output = self._next_output_path(output_dir / f"{source.stem}_detected.mp4")
                     counts = detector.detect_video(
                         str(source),
@@ -434,15 +455,26 @@ class DetectEverythingApp:
                             self._update_progress(file_index, total_sources, current, total)
                         ),
                     )
+                    self._set_status(f"Đang phân tích âm thanh và tạo report: {source.name}")
+                    audio_report = analyze_video_audio(source, output, counts, classes)
+                    result_output = Path(audio_report.report_html)
+                else:
+                    text_suffix = source.suffix.lower().lstrip(".")
+                    output = self._next_output_path(
+                        output_dir / f"{source.stem}_{text_suffix}_detected.html"
+                    )
+                    counts = text_detector.detect_file(str(source), str(output))
+                    result_output = output
+                    self._set_progress((index + 1) * 100 / total_sources)
 
                 count_text = (
                     ", ".join(f"{name}: {count}" for name, count in counts.items())
                     if counts
                     else "Không tìm thấy đối tượng phù hợp"
                 )
-                summaries.append(f"{source.name}: {count_text}\nFile: {output}")
-                result_items.append((source.name, count_text, output))
-                outputs.append(output)
+                summaries.append(f"{source.name}: {count_text}\nFile: {result_output}")
+                result_items.append((source.name, count_text, result_output))
+                outputs.append(result_output)
 
             self.root.after(
                 0,

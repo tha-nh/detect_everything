@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
-from detector import EverythingDetector
+from audio_detector import analyze_video_audio
+from text_detector import TEXT_EXTENSIONS, TextFileDetector
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".wmv"}
-SUPPORTED_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
+MEDIA_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
+SUPPORTED_EXTENSIONS = MEDIA_EXTENSIONS | TEXT_EXTENSIONS
 
 
 def parse_classes(value: str) -> list[str]:
@@ -55,7 +58,7 @@ def collect_sources(paths: list[Path]) -> list[Path]:
         raise ValueError(f"Có file chưa được hỗ trợ: {names}")
 
     if not sources:
-        raise ValueError("Không tìm thấy ảnh hoặc video được hỗ trợ.")
+        raise ValueError("Không tìm thấy ảnh, video hoặc file text được hỗ trợ.")
 
     return sources
 
@@ -67,8 +70,14 @@ def build_output_path(
     default_output_dir: Path,
 ) -> Path:
     extension = source.suffix.lower()
-    output_extension = ".jpg" if extension in IMAGE_EXTENSIONS else ".mp4"
-    default_name = f"{source.stem}_detected{output_extension}"
+    if extension in IMAGE_EXTENSIONS:
+        output_extension = ".jpg"
+        default_name = f"{source.stem}_detected{output_extension}"
+    elif extension in VIDEO_EXTENSIONS:
+        output_extension = ".mp4"
+        default_name = f"{source.stem}_detected{output_extension}"
+    else:
+        default_name = f"{source.stem}_{extension.lstrip('.')}_detected.html"
 
     if not output_arg:
         return default_output_dir / default_name
@@ -78,6 +87,18 @@ def build_output_path(
         return output / default_name
 
     return output
+
+
+def next_output_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+
+    for index in range(2, 1000):
+        candidate = path.with_name(f"{path.stem}_{index}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+
+    raise RuntimeError(f"Không thể tạo tên file đầu ra cho: {path}")
 
 
 def show_progress(current: int, total: int) -> None:
@@ -93,20 +114,25 @@ def show_progress(current: int, total: int) -> None:
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(
-        description="Detect Everything trên ảnh hoặc video bằng YOLO-World."
+        description="Detect Everything trên ảnh/video bằng YOLO-World và gán nhãn đoạn text trong tài liệu."
     )
     parser.add_argument(
         "--source",
         required=True,
         nargs="+",
-        help="Một hoặc nhiều đường dẫn ảnh/video/thư mục đầu vào.",
+        help="Một hoặc nhiều đường dẫn ảnh/video/text/thư mục đầu vào.",
     )
     parser.add_argument(
         "--classes",
         required=True,
         type=parse_classes,
-        help='Các vật muốn tìm, cách nhau bằng dấu phẩy. Ví dụ: "person,laptop,phone"',
+        help='Vật hoặc nhãn text, cách nhau bằng dấu phẩy. Ví dụ: "person,laptop,invoice=hóa đơn tổng tiền"',
     )
     parser.add_argument(
         "--confidence",
@@ -143,25 +169,41 @@ def main() -> None:
 
     multiple = len(sources) > 1
 
-    detector = EverythingDetector(
-        model_name=args.model,
-        confidence=args.confidence,
-        image_size=args.image_size,
-    )
-    detector.set_classes(args.classes)
+    detector = None
+    text_detector = TextFileDetector(args.classes)
 
     print("Đối tượng cần tìm:", ", ".join(args.classes))
     print(f"Số file cần xử lý: {len(sources)}")
 
     for index, source in enumerate(sources, start=1):
         extension = source.suffix.lower()
-        output = build_output_path(source, args.output, multiple, default_output_dir)
+        output = next_output_path(
+            build_output_path(source, args.output, multiple, default_output_dir)
+        )
 
         print(f"\n[{index}/{len(sources)}] Đang xử lý: {source}")
         if extension in IMAGE_EXTENSIONS:
+            if detector is None:
+                from detector import EverythingDetector
+
+                detector = EverythingDetector(
+                    model_name=args.model,
+                    confidence=args.confidence,
+                    image_size=args.image_size,
+                )
+                detector.set_classes(args.classes)
             counts = detector.detect_image(str(source), str(output))
             print_counts("Kết quả trên ảnh:", counts)
-        else:
+        elif extension in VIDEO_EXTENSIONS:
+            if detector is None:
+                from detector import EverythingDetector
+
+                detector = EverythingDetector(
+                    model_name=args.model,
+                    confidence=args.confidence,
+                    image_size=args.image_size,
+                )
+                detector.set_classes(args.classes)
             counts = detector.detect_video(
                 str(source),
                 str(output),
@@ -172,6 +214,13 @@ def main() -> None:
                 "Số vật thể ước tính trong video bằng tracking:",
                 counts,
             )
+            audio_report = analyze_video_audio(source, output, counts, args.classes)
+            print(f"Đã lưu báo cáo video tại: {Path(audio_report.report_html).resolve()}")
+            for status_item in audio_report.status:
+                print(f"- {status_item}")
+        else:
+            counts = text_detector.detect_file(str(source), str(output))
+            print_counts("Số đoạn theo từng nhãn:", counts)
 
         print(f"Đã lưu kết quả tại: {output.resolve()}")
 
